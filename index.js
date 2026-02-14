@@ -2,11 +2,27 @@ import "@shopify/shopify-api/adapters/node";
 
 import express from "express";
 import bodyParser from "body-parser";
-import fetch from "node-fetch";
 import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+
+/* ----------------------------
+   Environment validation
+----------------------------- */
+if (!process.env.SHOPIFY_API_KEY) {
+  throw new Error("Missing SHOPIFY_API_KEY");
+}
+
+if (!process.env.SHOPIFY_API_SECRET) {
+  throw new Error("Missing SHOPIFY_API_SECRET");
+}
+
+if (!process.env.APP_URL) {
+  throw new Error("Missing APP_URL (e.g. https://your-app.onrender.com)");
+}
+
+const HOST_NAME = process.env.APP_URL.replace(/^https?:\/\//, "");
 
 /* ----------------------------
    Shopify configuration
@@ -22,7 +38,7 @@ const shopify = shopifyApi({
     "read_products",
     "write_products",
   ],
-  hostName: process.env.APP_URL.replace(/^https?:\/\//, ""),
+  hostName: HOST_NAME,
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
 });
@@ -50,6 +66,8 @@ app.get("/auth", async (req, res) => {
     if (!shop) {
       return res.status(400).send("Missing ?shop parameter");
     }
+
+    console.log("➡️ Starting OAuth for shop:", shop);
 
     await shopify.auth.begin({
       shop,
