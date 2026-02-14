@@ -4,80 +4,78 @@ import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
 import "@shopify/shopify-api/adapters/node";
 
 const app = express();
+const PORT = process.env.PORT || 10000;
+
 app.use(cookieParser());
 
-const PORT = process.env.PORT || 10000;
+/* ---------------- Shopify config ---------------- */
 
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
-  scopes: [
-    "read_customers",
-    "write_customers",
-    "read_orders",
-    "read_fulfillments",
-    "read_products",
-    "write_products",
-  ],
+  scopes: process.env.SCOPES.split(","),
   hostName: process.env.APP_URL.replace(/^https?:\/\//, ""),
   apiVersion: LATEST_API_VERSION,
-  isEmbeddedApp: false,
+  isEmbeddedApp: true,
 });
 
-const OFFLINE_TOKENS = new Map();
+/* ---------------- Health check ---------------- */
 
-/**
- * START OAUTH
- */
+app.get("/", (_req, res) => {
+  res.status(200).send("Backend reachable");
+});
+
+/* ---------------- OAuth start ---------------- */
+
 app.get("/auth", async (req, res) => {
-  const shop = req.query.shop;
+  try {
+    const shop = req.query.shop;
 
-  if (!shop) {
-    return res.status(400).send("Missing ?shop parameter");
+    if (!shop) {
+      return res.status(400).send("Missing shop parameter");
+    }
+
+    console.log("➡️ Starting OAuth for shop:", shop);
+
+    const authRoute = await shopify.auth.begin({
+      shop,
+      callbackPath: "/auth/callback",
+      isOnline: false,
+      rawRequest: req,
+      rawResponse: res,
+    });
+
+    return res.redirect(authRoute);
+  } catch (error) {
+    console.error("❌ OAuth begin failed", error);
+    return res.status(500).send("OAuth begin failed");
   }
-
-  console.log("➡️ Starting OAuth for shop:", shop);
-
-  await shopify.auth.begin({
-    shop,
-    callbackPath: "/auth/callback",
-    isOnline: false,
-    rawRequest: req,
-    rawResponse: res,
-  });
 });
 
-/**
- * OAUTH CALLBACK
- */
+/* ---------------- OAuth callback ---------------- */
+
 app.get("/auth/callback", async (req, res) => {
   try {
-    console.log("🔁 OAuth callback received");
+    console.log("⬅️ OAuth callback received");
 
     const session = await shopify.auth.callback({
       rawRequest: req,
       rawResponse: res,
     });
 
-    OFFLINE_TOKENS.set(session.shop, session.accessToken);
+    console.log("✅ OAuth completed for shop:", session.shop);
 
-    console.log("✅ OAuth completed");
-    console.log("Shop:", session.shop);
-
-    res.send("OAuth successful. App installed.");
+    // App install completed
+    return res
+      .status(200)
+      .send(`App successfully installed for ${session.shop}`);
   } catch (error) {
-    console.error("❌ OAUTH FAILED");
-    console.error(error);
-    res.status(500).send("OAuth failed – see server logs");
+    console.error("❌ OAuth failed", error);
+    return res.status(400).send("OAuth failed");
   }
 });
 
-/**
- * HEALTH CHECK
- */
-app.get("/", (_req, res) => {
-  res.send("Backend reachable");
-});
+/* ---------------- Start server ---------------- */
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
