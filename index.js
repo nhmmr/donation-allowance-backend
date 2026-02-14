@@ -7,7 +7,8 @@ import {
   LATEST_API_VERSION,
 } from "@shopify/shopify-api";
 
-import { MemorySessionStorage } from "@shopify/shopify-api/dist/auth/session";
+import { MemorySessionStorage } from "@shopify/shopify-api/session";
+
 
 const app = express();
 const PORT = process.env.PORT || 10000;
