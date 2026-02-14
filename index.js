@@ -104,10 +104,15 @@ app.get("/auth/callback", async (req, res) => {
     res.send(
       "App installed successfully. You can close this window."
     );
-  } catch (err) {
-    console.error("❌ OAuth error:", err);
-    res.status(500).send("OAuth failed");
-  }
+  } } catch (error) {
+  console.error("❌ OAUTH ERROR");
+  console.error(error);
+  console.error("Query:", req.query);
+  console.error("Headers:", req.headers);
+
+  res.status(500).send("OAuth failed – see server logs");
+}
+
 });
 
 /* ------------------------------------------------------------------ */
