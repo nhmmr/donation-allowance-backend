@@ -1,13 +1,12 @@
+import "@shopify/shopify-api/adapters/node";
+
 import express from "express";
-import fetch from "node-fetch";
-import crypto from "crypto";
 import {
   shopifyApi,
   LATEST_API_VERSION,
 } from "@shopify/shopify-api";
 
 const app = express();
-app.use(express.json());
 
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -25,10 +24,10 @@ const shopify = shopifyApi({
 });
 
 app.get("/auth", async (req, res) => {
-  const shop = req.query.shop;
-  if (!shop) return res.status(400).send("Missing shop param");
+  const { shop } = req.query;
+  if (!shop) return res.status(400).send("Missing shop");
 
-  const authRoute = await shopify.auth.begin({
+  const redirect = await shopify.auth.begin({
     shop,
     callbackPath: "/auth/callback",
     isOnline: false,
@@ -36,7 +35,7 @@ app.get("/auth", async (req, res) => {
     rawResponse: res,
   });
 
-  return res.redirect(authRoute);
+  return res.redirect(redirect);
 });
 
 app.get("/auth/callback", async (req, res) => {
@@ -50,7 +49,7 @@ app.get("/auth/callback", async (req, res) => {
     res.send("App installed successfully 🎉");
   } catch (err) {
     console.error("❌ OAuth failed", err);
-    res.status(500).send("OAuth failed – see server logs");
+    res.status(500).send("OAuth failed – see logs");
   }
 });
 
