@@ -78,6 +78,9 @@ app.get("/auth/callback", async (req, res) => {
     return res.status(500).send("OAuth failed");
   }
 });
+app.get("/test", (req, res) => {
+  res.send("Backend reachable");
+});
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
