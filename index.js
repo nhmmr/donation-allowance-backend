@@ -2,7 +2,11 @@ import "@shopify/shopify-api/adapters/node";
 
 import express from "express";
 import bodyParser from "body-parser";
-import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
+import {
+  shopifyApi,
+  LATEST_API_VERSION,
+  MemorySessionStorage,
+} from "@shopify/shopify-api";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -19,10 +23,11 @@ if (!process.env.SHOPIFY_API_SECRET) {
 }
 
 if (!process.env.APP_URL) {
-  throw new Error("Missing APP_URL (e.g. https://your-app.onrender.com)");
+  throw new Error("Missing APP_URL");
 }
 
-const HOST_NAME = process.env.APP_URL.replace(/^https?:\/\//, "");
+const APP_URL = process.env.APP_URL.trim();
+const HOST_NAME = APP_URL.replace(/^https?:\/\//, "");
 
 /* ----------------------------
    Shopify configuration
@@ -41,6 +46,9 @@ const shopify = shopifyApi({
   hostName: HOST_NAME,
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
+
+  /* 🔑 THIS IS THE MISSING PIECE */
+  sessionStorage: new MemorySessionStorage(),
 });
 
 /* ----------------------------
@@ -95,7 +103,7 @@ app.get("/auth/callback", async (req, res) => {
 
     console.log("✅ OAUTH SUCCESS");
     console.log("Shop:", session.shop);
-    console.log("Access token received");
+    console.log("Access token stored in session");
 
     res.send("App installed successfully. You can close this window.");
   } catch (error) {
