@@ -25,7 +25,7 @@ let SHOPIFY_ACCESS_TOKEN = null;
 /* ------------------------------------------------------------------ */
 
 function verifyHmac(query) {
-  const { hmac, signature, ...rest } = query;
+  const { hmac, signature, host, ...rest } = query;
 
   const message = Object.keys(rest)
     .sort()
