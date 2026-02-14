@@ -1,39 +1,14 @@
-import "@shopify/shopify-api/adapters/node";
-
 import express from "express";
-import bodyParser from "body-parser";
+import fetch from "node-fetch";
+import crypto from "crypto";
 import {
   shopifyApi,
   LATEST_API_VERSION,
 } from "@shopify/shopify-api";
 
-import { MemorySessionStorage } from "@shopify/shopify-api/session";
-
-
 const app = express();
-const PORT = process.env.PORT || 10000;
+app.use(express.json());
 
-/* ----------------------------
-   Environment validation
------------------------------ */
-if (!process.env.SHOPIFY_API_KEY) {
-  throw new Error("Missing SHOPIFY_API_KEY");
-}
-
-if (!process.env.SHOPIFY_API_SECRET) {
-  throw new Error("Missing SHOPIFY_API_SECRET");
-}
-
-if (!process.env.APP_URL) {
-  throw new Error("Missing APP_URL");
-}
-
-const APP_URL = process.env.APP_URL.trim();
-const HOST_NAME = APP_URL.replace(/^https?:\/\//, "");
-
-/* ----------------------------
-   Shopify configuration
------------------------------ */
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
@@ -42,60 +17,28 @@ const shopify = shopifyApi({
     "write_customers",
     "read_orders",
     "read_fulfillments",
-    "read_products",
     "write_products",
   ],
-  hostName: HOST_NAME,
+  hostName: process.env.APP_URL.replace(/^https?:\/\//, ""),
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
-
-  /* 🔑 THIS IS THE MISSING PIECE */
-  sessionStorage: new MemorySessionStorage(),
 });
 
-/* ----------------------------
-   Middleware
------------------------------ */
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-
-/* ----------------------------
-   Health check
------------------------------ */
-app.get("/", (req, res) => {
-  res.send("Donation Allowance backend is running");
-});
-
-/* ----------------------------
-   OAuth start
------------------------------ */
 app.get("/auth", async (req, res) => {
-  try {
-    const shop = req.query.shop;
+  const shop = req.query.shop;
+  if (!shop) return res.status(400).send("Missing shop param");
 
-    if (!shop) {
-      return res.status(400).send("Missing ?shop parameter");
-    }
+  const authRoute = await shopify.auth.begin({
+    shop,
+    callbackPath: "/auth/callback",
+    isOnline: false,
+    rawRequest: req,
+    rawResponse: res,
+  });
 
-    console.log("➡️ Starting OAuth for shop:", shop);
-
-    await shopify.auth.begin({
-      shop,
-      callbackPath: "/auth/callback",
-      isOnline: false,
-      rawRequest: req,
-      rawResponse: res,
-    });
-  } catch (error) {
-    console.error("❌ AUTH BEGIN ERROR");
-    console.error(error);
-    res.status(500).send("Auth begin failed");
-  }
+  return res.redirect(authRoute);
 });
 
-/* ----------------------------
-   OAuth callback
------------------------------ */
 app.get("/auth/callback", async (req, res) => {
   try {
     const session = await shopify.auth.callback({
@@ -103,23 +46,15 @@ app.get("/auth/callback", async (req, res) => {
       rawResponse: res,
     });
 
-    console.log("✅ OAUTH SUCCESS");
-    console.log("Shop:", session.shop);
-    console.log("Access token stored in session");
-
-    res.send("App installed successfully. You can close this window.");
-  } catch (error) {
-    console.error("❌ OAUTH ERROR");
-    console.error(error);
-    console.error("Query:", req.query);
-
+    console.log("✅ OAuth success for", session.shop);
+    res.send("App installed successfully 🎉");
+  } catch (err) {
+    console.error("❌ OAuth failed", err);
     res.status(500).send("OAuth failed – see server logs");
   }
 });
 
-/* ----------------------------
-   Start server
------------------------------ */
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
