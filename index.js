@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
@@ -9,12 +10,14 @@ const PORT = process.env.PORT || 10000;
 app.use(cookieParser());
 
 /* ---------------- Shopify config ---------------- */
+  const appUrl =
+  process.env.APP_URL || "http://localhost:10000";
 
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
-  scopes: process.env.SCOPES.split(","),
-  hostName: process.env.APP_URL.replace(/^https?:\/\//, ""),
+  scopes: (process.env.SCOPES || "read_customers,write_customers,read_orders,read_fulfillments,read_products,write_products").split(","),
+hostName: appUrl.replace(/^https?:\/\//, ""),
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
 });
