@@ -25,15 +25,20 @@ let SHOPIFY_ACCESS_TOKEN = null;
 /* ------------------------------------------------------------------ */
 
 function verifyHmac(query) {
-  const { hmac, ...rest } = query;
-  const message = querystring.stringify(rest);
-  const digest = crypto
+  const { hmac, signature, ...rest } = query;
+
+  const message = Object.keys(rest)
+    .sort()
+    .map((key) => `${key}=${rest[key]}`)
+    .join("&");
+
+  const generatedHash = crypto
     .createHmac("sha256", process.env.SHOPIFY_API_SECRET)
     .update(message)
     .digest("hex");
 
   return crypto.timingSafeEqual(
-    Buffer.from(digest, "utf-8"),
+    Buffer.from(generatedHash, "utf-8"),
     Buffer.from(hmac, "utf-8")
   );
 }
