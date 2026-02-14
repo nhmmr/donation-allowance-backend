@@ -5,6 +5,18 @@ import "@shopify/shopify-api/adapters/node";
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+/* =======================
+   Shopify configuration
+======================= */
+
+if (
+  !process.env.SHOPIFY_API_KEY ||
+  !process.env.SHOPIFY_API_SECRET ||
+  !process.env.APP_URL
+) {
+  throw new Error("Missing required environment variables");
+}
+
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET,
@@ -21,14 +33,29 @@ const shopify = shopifyApi({
   isEmbeddedApp: true,
 });
 
+/* =======================
+   In-memory token store
+   (DEV ONLY)
+======================= */
+
+const OFFLINE_TOKENS = new Map();
+
+/* =======================
+   Basic routes
+======================= */
+
 app.get("/", (_req, res) => {
   res.send("Donation Allowance backend is running");
 });
 
-/**
- * START OAUTH
- * Shopify will call this with ?shop=xxx.myshopify.com
- */
+app.get("/test", (_req, res) => {
+  res.send("Backend reachable");
+});
+
+/* =======================
+   OAuth start
+======================= */
+
 app.get("/auth", async (req, res) => {
   try {
     const { shop } = req.query;
@@ -50,14 +77,14 @@ app.get("/auth", async (req, res) => {
     return res.redirect(authRoute);
   } catch (error) {
     console.error("❌ OAuth begin failed:", error);
-    res.status(500).send("OAuth begin failed");
+    return res.status(500).send("OAuth begin failed");
   }
 });
 
-/**
- * OAUTH CALLBACK
- * Shopify redirects here after login
- */
+/* =======================
+   OAuth callback
+======================= */
+
 app.get("/auth/callback", async (req, res) => {
   try {
     console.log("🔁 OAuth callback received");
@@ -67,20 +94,59 @@ app.get("/auth/callback", async (req, res) => {
       rawResponse: res,
     });
 
-    console.log("✅ OAuth completed for shop:", session.shop);
+    // 🔐 Store token in memory (DEV ONLY)
+    OFFLINE_TOKENS.set(session.shop, session.accessToken);
 
-    // SUCCESS — redirect wherever you want
-    return res.redirect(
-      `https://${session.shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`
-    );
+    console.log("✅ OAuth completed");
+    console.log("Shop:", session.shop);
+    console.log("Token stored in memory");
+
+    res.send("OAuth OK – token stored");
   } catch (error) {
     console.error("❌ OAuth failed:", error);
-    return res.status(500).send("OAuth failed");
+    res.status(500).send("OAuth failed – see server logs");
   }
 });
-app.get("/test", (req, res) => {
-  res.send("Backend reachable");
+
+/* =======================
+   Shopify API test
+======================= */
+
+app.get("/shop-info", async (req, res) => {
+  const { shop } = req.query;
+
+  if (!shop) {
+    return res.status(400).send("Missing ?shop parameter");
+  }
+
+  const token = OFFLINE_TOKENS.get(shop);
+
+  if (!token) {
+    return res
+      .status(401)
+      .send("No access token for this shop. Run OAuth first.");
+  }
+
+  try {
+    const client = new shopify.clients.Rest({
+      session: {
+        shop,
+        accessToken: token,
+      },
+    });
+
+    const response = await client.get({ path: "shop" });
+
+    res.json(response.body.shop);
+  } catch (error) {
+    console.error("❌ Shopify API call failed:", error);
+    res.status(500).send("Shopify API call failed");
+  }
 });
+
+/* =======================
+   Start server
+======================= */
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
