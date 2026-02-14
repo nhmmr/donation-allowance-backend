@@ -1,8 +1,7 @@
 import express from "express";
-import crypto from "crypto";
-import fetch from "node-fetch";
-import querystring from "querystring";
 import bodyParser from "body-parser";
+import fetch from "node-fetch";
+import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -15,6 +14,19 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 /* ------------------------------------------------------------------ */
+/* Shopify SDK init */
+/* ------------------------------------------------------------------ */
+
+const shopify = shopifyApi({
+  apiKey: process.env.SHOPIFY_API_KEY,
+  apiSecretKey: process.env.SHOPIFY_API_SECRET,
+  scopes: process.env.SHOPIFY_SCOPES.split(","),
+  hostName: "donation-allowance-backend.onrender.com",
+  apiVersion: LATEST_API_VERSION,
+  isEmbeddedApp: false,
+});
+
+/* ------------------------------------------------------------------ */
 /* Simple in-memory token store (OK til single shop) */
 /* ------------------------------------------------------------------ */
 
@@ -24,32 +36,13 @@ let SHOPIFY_ACCESS_TOKEN = null;
 /* Helpers */
 /* ------------------------------------------------------------------ */
 
-function verifyHmac(query) {
-  const { hmac, signature, host, ...rest } = query;
-
-  const message = Object.keys(rest)
-    .sort()
-    .map((key) => `${key}=${rest[key]}`)
-    .join("&");
-
-  const generatedHash = crypto
-    .createHmac("sha256", process.env.SHOPIFY_API_SECRET)
-    .update(message)
-    .digest("hex");
-
-  return crypto.timingSafeEqual(
-    Buffer.from(generatedHash, "utf-8"),
-    Buffer.from(hmac, "utf-8")
-  );
-}
-
 async function shopifyGraphQL(query, variables = {}) {
   if (!SHOPIFY_ACCESS_TOKEN) {
     throw new Error("Missing Shopify access token");
   }
 
   const res = await fetch(
-    `https://${process.env.SHOPIFY_SHOP_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION}/graphql.json`,
+    `https://${process.env.SHOPIFY_SHOP_DOMAIN}/admin/api/${LATEST_API_VERSION}/graphql.json`,
     {
       method: "POST",
       headers: {
@@ -76,86 +69,56 @@ app.get("/", (req, res) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* 1️⃣ OAuth – start installation */
+/* OAuth start */
 /* ------------------------------------------------------------------ */
 
-app.get("/auth", (req, res) => {
-  const shop = process.env.SHOPIFY_SHOP_DOMAIN;
-  const state = crypto.randomBytes(16).toString("hex");
+app.get("/auth", async (req, res) => {
+  const authRoute = await shopify.auth.begin({
+    shop: process.env.SHOPIFY_SHOP_DOMAIN,
+    callbackPath: "/auth/callback",
+    isOnline: false,
+    rawRequest: req,
+    rawResponse: res,
+  });
 
-  const installUrl =
-    `https://${shop}/admin/oauth/authorize?` +
-    querystring.stringify({
-      client_id: process.env.SHOPIFY_API_KEY,
-      scope: process.env.SHOPIFY_SCOPES,
-      redirect_uri:
-        "https://donation-allowance-backend.onrender.com/auth/callback",
-      state,
-    });
-
-  res.redirect(installUrl);
+  return res.redirect(authRoute);
 });
 
 /* ------------------------------------------------------------------ */
-/* 2️⃣ OAuth callback – exchange code for token */
+/* OAuth callback */
 /* ------------------------------------------------------------------ */
 
 app.get("/auth/callback", async (req, res) => {
-  const { code } = req.query;
-
-  if (!verifyHmac(req.query)) {
-    return res.status(400).send("HMAC validation failed");
-  }
-
   try {
-    const tokenRes = await fetch(
-      `https://${process.env.SHOPIFY_SHOP_DOMAIN}/admin/oauth/access_token`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_id: process.env.SHOPIFY_API_KEY,
-          client_secret: process.env.SHOPIFY_API_SECRET,
-          code,
-        }),
-      }
-    );
+    const session = await shopify.auth.callback({
+      rawRequest: req,
+      rawResponse: res,
+    });
 
-    const data = await tokenRes.json();
-
-    SHOPIFY_ACCESS_TOKEN = data.access_token;
+    SHOPIFY_ACCESS_TOKEN = session.accessToken;
 
     console.log("✅ SHOPIFY ACCESS TOKEN RECEIVED");
-    console.log(data.access_token);
+    console.log(SHOPIFY_ACCESS_TOKEN);
 
     res.send(
-      "App installed successfully. You can close this window and return to Render."
+      "App installed successfully. You can close this window."
     );
   } catch (err) {
-    console.error(err);
+    console.error("❌ OAuth error:", err);
     res.status(500).send("OAuth failed");
   }
 });
 
 /* ------------------------------------------------------------------ */
-/* 3️⃣ One-time webhook setup */
+/* One-time webhook setup */
 /* ------------------------------------------------------------------ */
 
 app.post("/setup/webhooks", async (req, res) => {
   try {
     const webhooks = [
-      {
-        topic: "PRODUCTS_CREATE",
-        path: "/webhooks/product-created",
-      },
-      {
-        topic: "ORDERS_CREATE",
-        path: "/webhooks/order-created",
-      },
-      {
-        topic: "FULFILLMENTS_CREATE",
-        path: "/webhooks/fulfillment-created",
-      },
+      { topic: "PRODUCTS_CREATE", path: "/webhooks/product-created" },
+      { topic: "ORDERS_CREATE", path: "/webhooks/order-created" },
+      { topic: "FULFILLMENTS_CREATE", path: "/webhooks/fulfillment-created" }
     ];
 
     for (const { topic, path } of webhooks) {
@@ -180,14 +143,15 @@ app.post("/setup/webhooks", async (req, res) => {
         }
       `;
 
-      const callbackUrl = `https://donation-allowance-backend.onrender.com${path}`;
+      const callbackUrl =
+        `https://donation-allowance-backend.onrender.com${path}`;
 
       const result = await shopifyGraphQL(mutation, {
         topic,
-        callbackUrl,
+        callbackUrl
       });
 
-      console.log("🔔 Webhook setup result:", JSON.stringify(result));
+      console.log("🔔 Webhook setup:", JSON.stringify(result));
     }
 
     res.json({ ok: true, message: "Webhooks created" });
@@ -198,21 +162,21 @@ app.post("/setup/webhooks", async (req, res) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* 4️⃣ Webhook receivers (placeholders) */
+/* Webhook receivers (placeholders) */
 /* ------------------------------------------------------------------ */
 
 app.post("/webhooks/product-created", (req, res) => {
-  console.log("📦 Product created webhook received");
+  console.log("📦 Product created");
   res.status(200).send("OK");
 });
 
 app.post("/webhooks/order-created", (req, res) => {
-  console.log("🧾 Order created webhook received");
+  console.log("🧾 Order created");
   res.status(200).send("OK");
 });
 
 app.post("/webhooks/fulfillment-created", (req, res) => {
-  console.log("🚚 Fulfillment created webhook received");
+  console.log("🚚 Fulfillment created");
   res.status(200).send("OK");
 });
 
