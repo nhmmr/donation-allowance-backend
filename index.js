@@ -1,93 +1,82 @@
 import express from "express";
-import cookieParser from "cookie-parser";
 import { shopifyApi, LATEST_API_VERSION } from "@shopify/shopify-api";
 import "@shopify/shopify-api/adapters/node";
 
-const {
-  SHOPIFY_API_KEY,
-  SHOPIFY_API_SECRET,
-  SHOPIFY_SHOP_DOMAIN,
-  APP_URL,
-  PORT = 10000,
-} = process.env;
-
-if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET || !SHOPIFY_SHOP_DOMAIN || !APP_URL) {
-  throw new Error("Missing required environment variables");
-}
+const app = express();
+const PORT = process.env.PORT || 10000;
 
 const shopify = shopifyApi({
-  apiKey: SHOPIFY_API_KEY,
-  apiSecretKey: SHOPIFY_API_SECRET,
+  apiKey: process.env.SHOPIFY_API_KEY,
+  apiSecretKey: process.env.SHOPIFY_API_SECRET,
   scopes: [
     "read_customers",
     "write_customers",
     "read_orders",
     "read_fulfillments",
+    "read_products",
     "write_products",
   ],
-  hostName: APP_URL.replace(/^https?:\/\//, ""),
+  hostName: process.env.APP_URL.replace(/^https?:\/\//, ""),
   apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: true,
 });
 
-const app = express();
-app.use(cookieParser());
-
-/**
- * 🔒 HARD LOCK: only allow ONE shop
- */
-function assertCorrectShop(req, res) {
-  const shop = req.query.shop;
-  if (shop !== SHOPIFY_SHOP_DOMAIN) {
-    res.status(400).send(
-      `Invalid shop. Expected ${SHOPIFY_SHOP_DOMAIN}, got ${shop}`
-    );
-    return false;
-  }
-  return true;
-}
-
-/**
- * Start OAuth
- */
-app.get("/auth", async (req, res) => {
-  if (!assertCorrectShop(req, res)) return;
-
-  await shopify.auth.begin({
-    shop: SHOPIFY_SHOP_DOMAIN,
-    callbackPath: "/auth/callback",
-    isOnline: false,
-    rawRequest: req,
-    rawResponse: res,
-  });
+app.get("/", (_req, res) => {
+  res.send("Donation Allowance backend is running");
 });
 
 /**
- * OAuth callback
+ * START OAUTH
+ * Shopify will call this with ?shop=xxx.myshopify.com
+ */
+app.get("/auth", async (req, res) => {
+  try {
+    const { shop } = req.query;
+
+    if (!shop) {
+      return res.status(400).send("Missing shop parameter");
+    }
+
+    console.log("➡️ Starting OAuth for shop:", shop);
+
+    const authRoute = await shopify.auth.begin({
+      shop,
+      callbackPath: "/auth/callback",
+      isOnline: false,
+      rawRequest: req,
+      rawResponse: res,
+    });
+
+    return res.redirect(authRoute);
+  } catch (error) {
+    console.error("❌ OAuth begin failed:", error);
+    res.status(500).send("OAuth begin failed");
+  }
+});
+
+/**
+ * OAUTH CALLBACK
+ * Shopify redirects here after login
  */
 app.get("/auth/callback", async (req, res) => {
-  if (!assertCorrectShop(req, res)) return;
-
   try {
+    console.log("🔁 OAuth callback received");
+
     const session = await shopify.auth.callback({
       rawRequest: req,
       rawResponse: res,
     });
 
-    console.log("✅ OAuth success for", session.shop);
+    console.log("✅ OAuth completed for shop:", session.shop);
 
-    res.redirect(`${APP_URL}/success`);
-  } catch (err) {
-    console.error("❌ OAuth failed", err);
-    res.status(500).send("OAuth failed – see server logs");
+    // SUCCESS — redirect wherever you want
+    return res.redirect(
+      `https://${session.shop}/admin/apps/${process.env.SHOPIFY_API_KEY}`
+    );
+  } catch (error) {
+    console.error("❌ OAuth failed:", error);
+    return res.status(500).send("OAuth failed");
   }
-});
-
-/**
- * Health check
- */
-app.get("/", (_req, res) => {
-  res.send("Donation Allowance backend is running");
 });
 
 app.listen(PORT, () => {

@@ -2,13 +2,11 @@
   "name": "donation-allowance-backend",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@shopify/shopify-api": "^11.4.1",
-    "cookie-parser": "^1.4.6",
+    "@shopify/shopify-api": "^11.14.1",
     "express": "^4.19.2"
   }
 }
