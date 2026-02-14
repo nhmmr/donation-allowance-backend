@@ -5,8 +5,9 @@ import bodyParser from "body-parser";
 import {
   shopifyApi,
   LATEST_API_VERSION,
-  MemorySessionStorage,
 } from "@shopify/shopify-api";
+
+import { MemorySessionStorage } from "@shopify/shopify-api/dist/auth/session";
 
 const app = express();
 const PORT = process.env.PORT || 10000;
