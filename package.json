@@ -1,13 +1,17 @@
 {
   "name": "donation-allowance-backend",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "@shopify/shopify-api": "^11.14.1",
-    "cookie-parser": "^1.4.6",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "cookie-parser": "^1.4.6"
   }
 }
